@@ -3,10 +3,11 @@
 //  VibeFocus
 //
 //  The initial setup view displayed on the first launch of the application.
-//  Guides users through initial configuration before transitioning to LaunchView.
+//  Now includes aggressive, live checking for Accessibility Permissions.
 //
 
 import SwiftUI
+import AppKit
 
 struct SetupView: View {
 
@@ -16,8 +17,12 @@ struct SetupView: View {
     /// Current step in the setup process
     @State private var currentStep: Int = 0
 
-    /// Total number of setup steps
+    /// Total number of setup steps (Added Vibe Presets as Step 3 for structure)
     private let totalSteps: Int = 3
+
+    // MARK: - Live Permission Status
+    @State private var hasAccessibilityPermission: Bool = false
+    @State private var timer: Timer? = nil
 
     var body: some View {
         VStack(spacing: 30) {
@@ -38,7 +43,7 @@ struct SetupView: View {
                 case 0:
                     setupStepOne
                 case 1:
-                    setupStepTwo
+                    setupStepTwo // The live permission check step
                 case 2:
                     setupStepThree
                 default:
@@ -62,6 +67,7 @@ struct SetupView: View {
             HStack(spacing: 20) {
                 if currentStep > 0 {
                     Button("Back") {
+                        stopLiveCheck()
                         withAnimation {
                             currentStep -= 1
                         }
@@ -73,11 +79,20 @@ struct SetupView: View {
 
                 if currentStep < totalSteps - 1 {
                     Button("Next") {
+                        if currentStep == 1 && !hasAccessibilityPermission {
+                            // Block progression if on Step 2 and permission is missing
+                            ApplicationManager.promptForAccessibilityPermissions()
+                            return
+                        }
+                        stopLiveCheck()
                         withAnimation {
                             currentStep += 1
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    // Disable Next if on the permission step and permission is NOT granted
+                    .disabled(currentStep == 1 && !hasAccessibilityPermission)
+
                 } else {
                     Button("Get Started") {
                         completeSetup()
@@ -89,6 +104,35 @@ struct SetupView: View {
         }
         .padding(40)
         .frame(minWidth: 500, minHeight: 450)
+        // Start and Stop the live check based on view lifecycle
+        .onAppear {
+            if currentStep == 1 { startLiveCheck() }
+        }
+        .onDisappear {
+            stopLiveCheck()
+        }
+        // Re-check permissions every time the application comes to the front
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if currentStep == 1 { checkPermissionStatus() }
+        }
+    }
+
+    // MARK: - Live Check Logic
+    private func startLiveCheck() {
+        checkPermissionStatus()
+        // Start a timer to poll for permission status every 2 seconds
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            checkPermissionStatus()
+        }
+    }
+
+    private func stopLiveCheck() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func checkPermissionStatus() {
+        self.hasAccessibilityPermission = ApplicationManager.checkAccessibilityPermissions()
     }
 
     // MARK: - Setup Steps
@@ -108,27 +152,43 @@ struct SetupView: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: 350)
         }
+        .onAppear {
+            stopLiveCheck() // Ensure timer is off
+            checkPermissionStatus()
+        }
     }
 
     private var setupStepTwo: some View {
         VStack(spacing: 16) {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 50))
-                .foregroundColor(.accentColor)
+                .foregroundColor(hasAccessibilityPermission ? .green : .red)
 
             Text("Step 2: Accessibility Permissions")
                 .font(.title3)
                 .fontWeight(.semibold)
+                .foregroundColor(hasAccessibilityPermission ? .primary : .red)
 
-            Text("VibeFocus requires Accessibility permissions to manage application windows. Please grant access in System Settings > Privacy & Security > Accessibility.")
+            Text(hasAccessibilityPermission ?
+                 "Permission Granted! The system recognizes VibeFocus." :
+                 "Permission Missing. Click 'Open Settings' and enable VibeFocus in the Accessibility list.")
                 .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                .foregroundColor(hasAccessibilityPermission ? .green : .secondary)
                 .frame(maxWidth: 350)
 
-            Button("Open System Settings") {
-                openAccessibilitySettings()
+            if !hasAccessibilityPermission {
+                Button("Open System Settings") {
+                    ApplicationManager.openAccessibilitySettings()
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Text("You can now click 'Next' to continue setup.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
             }
-            .buttonStyle(.bordered)
+        }
+        .onAppear {
+            startLiveCheck() // Start timer when this step is visible
         }
     }
 
@@ -138,28 +198,28 @@ struct SetupView: View {
                 .font(.system(size: 50))
                 .foregroundColor(.green)
 
-            Text("Step 3: You're All Set!")
+            Text("Step 3: Setup Complete!")
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            Text("VibeFocus is ready to help you focus. Click 'Get Started' to begin your first focus session.")
+            Text("VibeFocus is ready to help you focus. Click 'Get Started' to begin your first clean focus session.")
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: 350)
+        }
+        .onAppear {
+            stopLiveCheck() // Timer no longer needed
+            checkPermissionStatus()
         }
     }
 
     // MARK: - Actions
 
-    /// Opens System Settings to the Accessibility preferences pane
-    private func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     /// Completes the setup process and transitions to the main LaunchView
     private func completeSetup() {
+        // Set the UserDefaults flag to stop showing the setup view
+        UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+
         withAnimation {
             isFirstLaunch = false
         }

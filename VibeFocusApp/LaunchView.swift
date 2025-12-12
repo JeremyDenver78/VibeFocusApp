@@ -3,251 +3,154 @@
 //  VibeFocus
 //
 //  The main view displayed after the initial setup has been completed.
-//  This view is shown on all subsequent launches after the first launch.
+//  This is the clean, minimalist screen for daily use.
 //
 
 import SwiftUI
 
 struct LaunchView: View {
+    // We use a simple ObservedObject for permission checks
+    // NOTE: This assumes ApplicationManager is refactored into an ObservableObject if you want real-time updates.
+    // For simplicity, we'll use @State and check onAppear for this version.
+    @State private var hasAccessibilityPermission: Bool = false
 
-    // MARK: - State Properties
-
-    /// Comma-separated list of app names to keep visible (whitelist)
-    @State private var whitelistInput: String = ""
-
-    /// List of currently running applications, updated on view appear
-    @State private var runningApps: [String] = []
-
-    /// Status message to display after hide action
-    @State private var statusMessage: String = ""
-
-    // MARK: - Computed Properties
-
-    /// Parses the comma-separated input into an array of trimmed app names
-    private var whitelistedApps: [String] {
-        whitelistInput
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
-    // MARK: - Body
+    // Define the Vibe Presets
+    private let quickLaunchVibes: [(name: String, icon: String)] = [
+        ("Word & Email", "doc.text.fill"),
+        ("Code & Web", "chevron.left.forwardslash.chevron.right"),
+        ("Design & Music", "paintpalette.fill"),
+        ("Quick Task", "bolt.fill")
+    ]
 
     var body: some View {
-        VStack(spacing: 16) {
-            // Accessibility permissions notice
-            accessibilityNotice
+        ZStack {
+            // 1. Aesthetics: Full black background
+            Color.black.ignoresSafeArea()
 
-            Divider()
+            VStack(spacing: 50) {
+                // 2. Central Prompt
+                Text("What do you want to work on?")
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.top, 80)
 
-            // App title
-            Text("VibeFocus")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-
-            // Main content in horizontal split
-            HStack(alignment: .top, spacing: 24) {
-                // Left side: Whitelist input
-                whitelistSection
-
-                Divider()
-
-                // Right side: Running apps list
-                runningAppsSection
-            }
-            .frame(maxHeight: .infinity)
-
-            // Status message
-            if !statusMessage.isEmpty {
-                Text(statusMessage)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal)
-            }
-
-            // Action button
-            Button(action: startFocusMode) {
-                Text("Start Focus Mode")
-                    .font(.headline)
-                    .frame(maxWidth: 200)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(whitelistedApps.isEmpty)
-        }
-        .padding(30)
-        .frame(minWidth: 600, minHeight: 450)
-        .onAppear {
-            refreshRunningApps()
-        }
-    }
-
-    // MARK: - View Components
-
-    /// Notice about Accessibility permissions requirement
-    private var accessibilityNotice: some View {
-        HStack {
-            Image(systemName: "lock.shield")
-                .foregroundColor(.orange)
-
-            Text("Requires Accessibility permissions: System Settings > Privacy & Security > Accessibility")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Spacer()
-
-            Button("Open Settings") {
-                ApplicationManager.openAccessibilitySettings()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(.horizontal)
-    }
-
-    /// Whitelist input section
-    private var whitelistSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Apps to Keep Visible")
-                .font(.headline)
-
-            Text("Enter app names separated by commas:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            TextField("Safari, Finder, Notes", text: $whitelistInput)
-                .textFieldStyle(.roundedBorder)
-
-            // Show parsed whitelist
-            if !whitelistedApps.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Whitelist (\(whitelistedApps.count) apps):")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    ForEach(whitelistedApps, id: \.self) { app in
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                            Text(app)
-                                .font(.caption)
+                // 3. Vibe Preset Boxes
+                HStack(spacing: 20) {
+                    ForEach(quickLaunchVibes, id: \.name) { vibe in
+                        VibeButton(vibe: vibe) {
+                            startVibe(vibeName: vibe.name)
                         }
                     }
                 }
-                .padding(.top, 8)
-            }
+                .frame(maxWidth: 800)
+                .padding(.horizontal, 40)
 
-            Spacer()
-        }
-        .frame(minWidth: 200)
-    }
-
-    /// Running applications list section
-    private var runningAppsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Running Applications")
-                    .font(.headline)
+                // 4. Dropdown Menu
+                Menu("More Vibes...") {
+                    Button("Deep Focus") { startVibe(vibeName: "Deep Focus") }
+                    Button("Meeting Prep") { startVibe(vibeName: "Meeting Prep") }
+                    Button("Admin Tasks") { startVibe(vibeName: "Admin Tasks") }
+                }
+                .menuStyle(.borderlessButton)
+                .foregroundColor(.white)
+                .padding(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                )
 
                 Spacer()
 
-                Button(action: refreshRunningApps) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh list")
             }
-
-            Text("Click an app name to add it to the whitelist:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            // Scrollable list of running apps
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(runningApps, id: \.self) { appName in
-                        runningAppRow(appName: appName)
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity)
-            .background(Color(nsColor: .textBackgroundColor))
-            .cornerRadius(6)
-        }
-        .frame(minWidth: 200)
-    }
-
-    /// Individual row for a running application
-    private func runningAppRow(appName: String) -> some View {
-        let isWhitelisted = whitelistedApps.map { $0.lowercased() }.contains(appName.lowercased())
-
-        return Button(action: {
-            addToWhitelist(appName: appName)
-        }) {
-            HStack {
-                Image(systemName: isWhitelisted ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isWhitelisted ? .green : .secondary)
-
-                Text(appName)
-                    .foregroundColor(.primary)
-
+            // 6. Accessibility Indicator (Bottom Right)
+            VStack {
                 Spacer()
+                HStack {
+                    Spacer()
+                    AccessibilityIndicator(hasPermission: hasAccessibilityPermission)
+                        .onTapGesture {
+                            // Offer to open settings if permission is missing
+                            if !hasAccessibilityPermission {
+                                ApplicationManager.openAccessibilitySettings()
+                            }
+                        }
+                }
+                .padding(20)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(isWhitelisted ? Color.green.opacity(0.1) : Color.clear)
-            .cornerRadius(4)
         }
-        .buttonStyle(.plain)
+        .onAppear {
+            // Check permissions when the view appears
+            hasAccessibilityPermission = ApplicationManager.checkAccessibilityPermissions()
+        }
+        // Set a default size for the window, as it's the main entry point
+        .frame(minWidth: 800, minHeight: 600)
     }
 
     // MARK: - Actions
 
-    /// Refreshes the list of running applications
-    private func refreshRunningApps() {
-        runningApps = ApplicationManager.getRunningApplications()
-    }
+    private func startVibe(vibeName: String) {
+        print("Starting Vibe: \(vibeName)")
 
-    /// Adds an app name to the whitelist input
-    private func addToWhitelist(appName: String) {
-        // Check if already in whitelist (case-insensitive)
-        let lowercasedWhitelist = whitelistedApps.map { $0.lowercased() }
-        if lowercasedWhitelist.contains(appName.lowercased()) {
-            // Remove from whitelist
-            let filtered = whitelistedApps.filter { $0.lowercased() != appName.lowercased() }
-            whitelistInput = filtered.joined(separator: ", ")
-        } else {
-            // Add to whitelist
-            if whitelistInput.isEmpty {
-                whitelistInput = appName
-            } else {
-                whitelistInput += ", \(appName)"
+        // Safety check: Prompt user if permissions are missing
+        if !ApplicationManager.checkAccessibilityPermissions() {
+            hasAccessibilityPermission = ApplicationManager.promptForAccessibilityPermissions()
+            print("Action Failed: Accessibility permissions are required to start a Vibe.")
+            return
+        }
+
+        // --- Placeholder for actual Vibe logic (App Hiding) ---
+        // For demonstration, let's assume the 'Word & Email' vibe whitelists "Finder" and "Mail"
+        if vibeName == "Word & Email" {
+            ApplicationManager.hideAllExcept(appNames: ["Finder", "Mail", "Microsoft Word"])
+        }
+
+        // NOTE: You'll implement a full VibePreset model later.
+    }
+}
+
+// MARK: - Component Views
+
+/// Custom button style for the quick-launch boxes
+struct VibeButton: View {
+    let vibe: (name: String, icon: String)
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 15) {
+                Image(systemName: vibe.icon)
+                    .font(.system(size: 30))
+                    .foregroundColor(.white)
+
+                Text(vibe.name)
+                    .font(.headline)
+                    .foregroundColor(.white)
             }
+            .frame(maxWidth: .infinity, minHeight: 150)
+            .background(Color.white.opacity(0.05))
+            .cornerRadius(15)
+            .overlay(
+                RoundedRectangle(cornerRadius: 15)
+                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain) // Use plain style for custom background
     }
+}
 
-    /// Executes the hide all except whitelist action
-    private func startFocusMode() {
-        guard !whitelistedApps.isEmpty else {
-            statusMessage = "Please add at least one app to the whitelist."
-            return
-        }
+/// Subtle indicator for Accessibility Permission status
+struct AccessibilityIndicator: View {
+    let hasPermission: Bool
 
-        // Check permissions first
-        guard ApplicationManager.checkAccessibilityPermissions() else {
-            statusMessage = "Accessibility permissions required. Click 'Open Settings' above."
-            ApplicationManager.promptForAccessibilityPermissions()
-            return
-        }
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "circle.fill")
+                .foregroundColor(hasPermission ? .green : .red)
+                .font(.system(size: 8))
 
-        // Hide all apps except whitelisted ones
-        ApplicationManager.hideAllExcept(appNames: whitelistedApps)
-        statusMessage = "Focus mode activated! Hidden all apps except: \(whitelistedApps.joined(separator: ", "))"
-
-        // Refresh the running apps list after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            refreshRunningApps()
+            Text(hasPermission ? "Focus Ready" : "Setup Required")
+                .font(.caption)
+                .foregroundColor(.gray)
         }
     }
 }
